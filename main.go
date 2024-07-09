@@ -1,4 +1,4 @@
-package GoLang
+package main
 
 import (
 	"fmt"
