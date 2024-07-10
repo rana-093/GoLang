@@ -19,6 +19,9 @@ func twoSum(num []int, target int) []int {
 		}
 		fmt.Printf("cursum : %d, i = %d, j = %d", curSum, i, j)
 	}
-
 	return []int{-1, -1}
+}
+
+func main() {
+	fmt.Print("sdfkndskvn")
 }
