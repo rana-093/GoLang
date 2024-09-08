@@ -5,6 +5,61 @@ import (
 	"sort"
 )
 
+// https://leetcode.com/problems/split-linked-list-in-parts/description/
+type ListNode struct {
+	Val  int
+	Next *ListNode
+}
+
+func splitListToParts(head *ListNode, k int) []*ListNode {
+	var parts []*ListNode
+	length, cur := 0, head
+
+	for cur != nil {
+		length++
+		cur = cur.Next
+	}
+
+	ptr := head
+	each, extra := length/k, length%k
+
+	for ptr != nil {
+		curHead, flag := ptr, false
+		for i := 0; i < each && ptr != nil; i++ {
+			ptr = ptr.Next
+			flag = true
+		}
+
+		if !flag {
+			curHead = ptr
+		}
+
+		if extra > 0 && ptr != nil {
+			ptr = ptr.Next
+			extra--
+		}
+
+		temp := curHead
+
+		for curHead != nil && curHead.Next != ptr {
+			curHead = curHead.Next
+		}
+
+		if curHead != nil {
+			curHead.Next = nil
+		}
+		k--
+		parts = append(parts, temp)
+	}
+
+	for k > 0 {
+		parts = append(parts, nil)
+		k--
+	}
+
+	return parts
+}
+
 func twoSum(num []int, target int) []int {
 	sort.Ints(num)
 	for i, j := 0, len(num)-1; j > i; {
@@ -67,7 +122,7 @@ func numSplits(s string) int {
 		}
 	}
 
-	for i, _ := range s {
+	for i := range s {
 		uniqueLeft, uniqueRight := left[i], right[i+1]
 		if uniqueLeft == uniqueRight {
 			ans++
