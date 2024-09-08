@@ -88,13 +88,13 @@ func prepareAndCallEndpoint(url string, headers map[string]string, wg *sync.Wait
 func checkGoRoutinesAndChannels() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		fmt.Println("Error loading .env file")
+		panic("Error loading .env file")
 	}
 	url, token := os.Getenv("URL"), os.Getenv("TOKEN")
 
 	ch := make(chan *Response)
 
-	fmt.Println("url is : %s, token is : %s\n", url, token)
+	fmt.Printf("url is : %s, token is : %s\n\n", url, token)
 
 	headers := map[string]string{
 		"Authorization": token,
@@ -108,7 +108,7 @@ func checkGoRoutinesAndChannels() {
 		go func() {
 			response, err := prepareAndCallEndpoint(url, headers, &wg)
 			if err != nil {
-				fmt.Errorf("Error preparing endpoint: %v", err)
+				_ = fmt.Errorf("error preparing endpoint: %v", err)
 				ch <- nil
 				return
 			}
@@ -120,5 +120,5 @@ func checkGoRoutinesAndChannels() {
 	response := <-ch
 	end := time.Now()
 	fmt.Println("Time taken is : ", end.Sub(start))
-	fmt.Println("total respose is , ", response)
+	fmt.Println("total response is , ", response)
 }
