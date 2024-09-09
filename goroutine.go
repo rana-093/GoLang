@@ -58,7 +58,7 @@ func prepareAndCallEndpoint(url string, headers map[string]string, wg *sync.Wait
 	defer wg.Done()
 
 	if err != nil {
-		return nil, fmt.Errorf("Error creating request: %v", err)
+		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
 	for key, value := range headers {
