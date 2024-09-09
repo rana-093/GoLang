@@ -89,6 +89,7 @@ func checkGoRoutinesAndChannels() {
 	err := godotenv.Load(".env")
 	if err != nil {
 		fmt.Println("Error loading .env file")
+		return
 	}
 	url, token := os.Getenv("URL"), os.Getenv("TOKEN")
 
@@ -120,5 +121,5 @@ func checkGoRoutinesAndChannels() {
 	response := <-ch
 	end := time.Now()
 	fmt.Println("Time taken is : ", end.Sub(start))
-	fmt.Println("total respose is , ", response)
+	fmt.Println("Total response is , ", response)
 }
