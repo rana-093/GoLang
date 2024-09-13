@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 )
 
-// https://leetcode.com/problems/split-linked-list-in-parts/description/
+// ListNode https://leetcode.com/problems/split-linked-list-in-parts/description/
 type ListNode struct {
 	Val  int
 	Next *ListNode
@@ -14,7 +15,7 @@ type ListNode struct {
 func splitListToParts(head *ListNode, k int) []*ListNode {
 	var parts []*ListNode
 	length, cur := 0, head
-
+	slog.Info("")
 	for cur != nil {
 		length++
 		cur = cur.Next
@@ -80,6 +81,11 @@ func max(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+func demo() error {
+	//ctx := context.Background()
+	return nil
 }
 
 func averageWaitingTime(customers [][]int) float64 {

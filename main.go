@@ -24,5 +24,5 @@ func twoSum(num []int, target int) []int {
 
 func main() {
 	//checkGoRoutinesAndChannels()
-	calc()
+	//calc()
 }
