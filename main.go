@@ -25,4 +25,9 @@ func twoSum(num []int, target int) []int {
 func main() {
 	//checkGoRoutinesAndChannels()
 	//calc()
+	//err := Crawler.Crawler("https://shop.adidas.jp")
+	//if err != nil {
+	//	return
+	//}
+	//Crawler.Main()
 }
