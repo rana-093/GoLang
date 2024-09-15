@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GoLang/RandomConcepts"
 	"fmt"
 	"sort"
 )
@@ -25,4 +26,6 @@ func twoSum(num []int, target int) []int {
 func main() {
 	//checkGoRoutinesAndChannels()
 	calc()
+	err := RandomConcepts.TestInterface()
+	fmt.Println(err)
 }
