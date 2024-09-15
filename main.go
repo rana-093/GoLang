@@ -1,7 +1,7 @@
 package main
 
 import (
-	"GoLang/RandomConcepts"
+	//"GoLang/RandomConcepts"
 	"fmt"
 	"sort"
 )
@@ -25,7 +25,16 @@ func twoSum(num []int, target int) []int {
 
 func main() {
 	//checkGoRoutinesAndChannels()
+	/**
 	calc()
 	err := RandomConcepts.TestInterface()
 	fmt.Println(err)
+	//calc()
+	//err := Crawler.Crawler("https://shop.adidas.jp")
+	//if err != nil {
+	//	return
+	//}
+	//Crawler.Main()
+
+	*/
 }
