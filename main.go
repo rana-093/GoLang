@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GoLang/Leetcode"
 	"fmt"
 	"sort"
 )
@@ -30,4 +31,6 @@ func main() {
 	//	return
 	//}
 	//Crawler.Main()
+	ans := Leetcode.FindTheLongestSubstring("bcbcbc")
+	fmt.Println("ans : ", ans)
 }
