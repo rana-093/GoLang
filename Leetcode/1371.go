@@ -20,7 +20,7 @@ func vowelPosition(ch rune) int {
 	return -1
 }
 
-func FindTheLongestSubstring(s string) int {
+func findTheLongestSubstring(s string) int {
 	freq := make(map[int]int)
 	mask, maxLen := 0, 0
 	freq[0] = -1
