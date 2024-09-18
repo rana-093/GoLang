@@ -40,5 +40,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("Hello there!")
+	fmt.Println("Hello there! ", db)
 }
