@@ -1,57 +1,44 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
-	"log"
-
-	"github.com/gocolly/colly/v2"
+	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	_ "gorm.io/gorm"
+	"os"
+	"time"
 )
 
-// LoginResponseDTO holds the response and the CSRF token
-type LoginResponseDTO struct {
-	CSRFToken string
-}
-
-// RetrieveCSRFTokenForUser retrieves the CSRF token from the login page using GoColly
-func RetrieveCSRFTokenForUser(baseURL string, loginURLSuffix string) (*LoginResponseDTO, error) {
-	// Create a new collector
-	c := colly.NewCollector()
-
-	var csrfToken string
-
-	// On HTML callback
-	c.OnHTML("input[name=_token]", func(e *colly.HTMLElement) {
-		csrfToken = e.Attr("value")
-	})
-
-	// Error handling for the request
-	c.OnError(func(_ *colly.Response, err error) {
-		log.Println("Something went wrong:", err)
-	})
-
-	// Make a GET request to the login page
-	err := c.Visit(baseURL + loginURLSuffix)
-	if err != nil {
-		return nil, err
-	}
-
-	if csrfToken == "" {
-		return nil, fmt.Errorf("CSRF token not found")
-	}
-
-	return &LoginResponseDTO{
-		CSRFToken: csrfToken,
-	}, nil
+type User struct {
+	ID           uint
+	Name         string
+	Email        *string
+	Age          uint8          // An unsigned 8-bit integer
+	Birthday     *time.Time     // A pointer to time.Time, can be null
+	MemberNumber sql.NullString // Uses sql.NullString to handle nullable strings
+	ActivatedAt  sql.NullTime   // Uses sql.NullTime for nullable time fields
+	CreatedAt    time.Time      // Automatically managed by GORM for creation time
+	UpdatedAt    time.Time      // Automatically managed by GORM for update time
 }
 
 func main() {
-	baseURL := "https://gps.carcopolo.com"
-	loginURLSuffix := "/login"
-
-	loginResponse, err := RetrieveCSRFTokenForUser(baseURL, loginURLSuffix)
-	if err != nil {
-		log.Fatalf("Error retrieving CSRF token: %v", err)
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("Error loading .env file")
 	}
 
-	fmt.Printf("CSRF Token: %s\n", loginResponse.CSRFToken)
+	dbName := os.Getenv("DB_NAME")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=5432 sslmode=disable TimeZone=Asia/Shanghai", dbHost, dbUser, dbPassword, dbName)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Hello there!")
 }
