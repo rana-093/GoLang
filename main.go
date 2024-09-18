@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GoLang/csvparsing"
 	"fmt"
 	"sort"
 )
@@ -24,4 +25,5 @@ func twoSum(num []int, target int) []int {
 
 func main() {
 	fmt.Println("==================================================")
+	csvparsing.ParseCSV("csvparsing/input.csv")
 }
