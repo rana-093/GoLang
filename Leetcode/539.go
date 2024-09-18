@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func FindMinDifference(timePoints []string) int {
+func findMinDifference(timePoints []string) int {
 	var arr []int
 
 	for _, val := range timePoints {
