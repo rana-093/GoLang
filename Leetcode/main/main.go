@@ -5,6 +5,6 @@ import (
 )
 
 func main() {
-	ans := "0"
+	ans := "2-1-1"
 	fmt.Printf("ans is : %s", ans)
 }
