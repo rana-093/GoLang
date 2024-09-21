@@ -5,6 +5,9 @@ import (
 )
 
 func main() {
-	ans := "2-1-1"
-	fmt.Printf("ans is : %s", ans)
+	ans := []int{1, 2, 3, 4}
+	for _, val := range ans {
+		fmt.Printf("%d ", val)
+	}
+	fmt.Println()
 }
