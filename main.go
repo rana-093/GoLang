@@ -1,7 +1,7 @@
 package main
 
 import (
-	"GoLang/csvparsing"
+	"GoLang/Backend"
 	"fmt"
 	"sort"
 )
@@ -25,5 +25,6 @@ func twoSum(num []int, target int) []int {
 
 func main() {
 	fmt.Println("==================================================")
-	csvparsing.ParseCSV("csvparsing/input.csv")
+
+	Backend.ParseXSLX("csvparsing/object_history_report_2024_09_01_00_00_00_2024_10_01_00_00_00_1727255721.xlsx")
 }

@@ -1,44 +1,98 @@
-package main
+package Backend
 
 import (
-	"database/sql"
+	"GoLang/csvparsing"
+	"encoding/json"
 	"fmt"
-	"github.com/joho/godotenv"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	_ "gorm.io/gorm"
+	"io"
+	"log/slog"
+	"net/http"
 	"os"
-	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-type User struct {
-	ID           uint
-	Name         string
-	Email        *string
-	Age          uint8          // An unsigned 8-bit integer
-	Birthday     *time.Time     // A pointer to time.Time, can be null
-	MemberNumber sql.NullString // Uses sql.NullString to handle nullable strings
-	ActivatedAt  sql.NullTime   // Uses sql.NullTime for nullable time fields
-	CreatedAt    time.Time      // Automatically managed by GORM for creation time
-	UpdatedAt    time.Time      // Automatically managed by GORM for update time
+const (
+	region = "ap-south-1"
+	bucket = "report-sl"
+)
+
+func searchFileWithKeyAndDownloadFile(key string) {
+
+}
+
+func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("objectHistoryUrl")
+	slog.Info("Object History URL is: ", key)
+
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	})
+
+	if err != nil {
+		fmt.Println("Error creating session:", err)
+		return
+	}
+
+	svc := s3.New(sess)
+
+	result, err := svc.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		fmt.Println("Error getting object:", err)
+		return
+	}
+	defer result.Body.Close()
+
+	tempFile, err := os.CreateTemp("", "downloaded-*.xlsx")
+
+	if err != nil {
+		fmt.Println("Error creating temporary file:", err)
+		return
+	}
+
+	defer os.Remove(tempFile.Name())
+
+	if _, err := io.Copy(tempFile, result.Body); err != nil {
+		fmt.Println("Error saving the file:", err)
+		return
+	}
+
+	if err := tempFile.Close(); err != nil {
+		fmt.Println("Error closing temp file:", err)
+		return
+	}
+
+	err = csvparsing.ParseXSLX(tempFile.Name())
+	if err != nil {
+		slog.Error("Error parsing CSV file:", err)
+		return
+	}
+	err, output := ParseXSLX(tempFile.Name())
+	if err != nil {
+		slog.Error("Error parsing CSV file:", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	response, err := json.Marshal(output)
+
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
 }
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("Error loading .env file")
-	}
-
-	dbName := os.Getenv("DB_NAME")
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbHost := os.Getenv("DB_HOST")
-
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=5432 sslmode=disable TimeZone=Asia/Shanghai", dbHost, dbUser, dbPassword, dbName)
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Hello there! ", db)
+	slog.Info("Listening on port 8088")
+	http.HandleFunc("/", handleDownLoadFile)
+	http.ListenAndServe(":8088", nil)
 }

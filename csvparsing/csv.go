@@ -3,9 +3,11 @@ package csvparsing
 import (
 	"encoding/csv"
 	"fmt"
+	"github.com/xuri/excelize/v2"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,6 +43,150 @@ func millisecondsToSeconds(ms int64) float32 {
 	return float32(ms) / 1_000
 }
 
+func ParseXSLX(fileName string) error {
+	startTime := time.Now()
+	f, err := excelize.OpenFile(fileName)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return nil
+	}
+
+	sheetName := f.GetSheetName(0)
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		fmt.Println("Error reading rows:", err)
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	var lock sync.Mutex
+
+	const Layout, Workers, Interval = "02-01-2006 15:04:05", 50, 20
+	const AccelerateThresholdInKMPerSecond = 3
+	chunkSize := len(rows) / Workers
+	fmt.Printf("chunksize is: %d. Total rows: %d\n", chunkSize, len(rows))
+
+	//fmt.Printf("%v -> %v", rows[1][0], rows[1][1])
+
+	speedMap := make(map[time.Time][]SpeedInfo)
+
+	processChunk := func(data [][]string, wg *sync.WaitGroup) {
+		for _, row := range data {
+			if len(row) < 18 || strings.EqualFold(row[0], "Device") {
+				continue
+			}
+			timeStamp, err := time.Parse(Layout, row[2])
+			if err != nil {
+				panic(err)
+			}
+			speed, _ := strconv.ParseFloat(row[7], 32)
+			distance, _ := strconv.ParseFloat(row[16], 32)
+			totalDistance, _ := strconv.ParseFloat(row[17], 32)
+			lat, _ := strconv.ParseFloat(row[3], 32)
+			lon, _ := strconv.ParseFloat(row[4], 32)
+			motion, _ := strconv.ParseBool(row[15])
+
+			speedInfo := SpeedInfo{
+				TimeStamp:     timeStamp,
+				Speed:         float32(speed),
+				Distance:      float32(distance),
+				TotalDistance: float32(totalDistance),
+				Lat:           float32(lat),
+				Lon:           float32(lon),
+				Motion:        motion,
+			}
+
+			key := timeStamp.Truncate(time.Duration(Interval) * time.Second)
+			lock.TryLock()
+			speedMap[key] = append(speedMap[key], speedInfo)
+			lock.Unlock()
+		}
+	}
+
+	handleTimeStampWiseAggregation := func(data []SpeedInfo) (bool, bool) {
+		sort.Slice(data, func(i, j int) bool {
+			return data[i].TimeStamp.Before(data[j].TimeStamp)
+		})
+		N := len(data)
+		isAcceleration, isNegativeAcceleration := true, true
+		totalDistanceCoveredInKM := data[0].Distance
+		for i := 1; i < N; i++ {
+			if data[i].Speed > data[i-1].Speed {
+				isNegativeAcceleration = false
+			} else if data[i].Speed < data[i-1].Speed {
+				isAcceleration = false
+			}
+			totalDistanceCoveredInKM += data[i].Distance
+		}
+		totalMilliSeconds := data[N-1].TimeStamp.Sub(data[0].TimeStamp).Milliseconds()
+		velocityInKMPerSecond := totalDistanceCoveredInKM / millisecondsToSeconds(totalMilliSeconds)
+		if totalMilliSeconds == 0 || velocityInKMPerSecond == 0 {
+			return false, false
+		}
+		if isAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
+			return true, false
+		} else if isNegativeAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
+			return false, true
+		}
+		return false, false
+	}
+
+	processChunk(rows[1:len(rows)], &wg)
+
+	totalPositiveAccelerationCase, totalNegativeAccelerationCase := 0, 0
+
+	const NoOfThreads = 15
+	eachThread := len(speedMap) / NoOfThreads
+
+	chunkWiseData := make(chan AccelerationResult, NoOfThreads)
+
+	var keysGroup [][]SpeedInfo
+	idx := 0
+	for _, val := range speedMap {
+		idx++
+		keysGroup = append(keysGroup, val)
+		if (idx+1)%eachThread == 0 || idx == len(speedMap)-1 {
+			wg.Add(1)
+			go func(group [][]SpeedInfo) {
+				defer wg.Done()
+				positiveAcc, negativeAcc := 0, 0
+				for _, row := range group {
+					if len(row) < 2 {
+						continue
+					}
+					posAcc, negAcc := handleTimeStampWiseAggregation(row)
+					if posAcc {
+						positiveAcc++
+					} else if negAcc {
+						negativeAcc++
+					}
+				}
+				chunkWiseData <- AccelerationResult{
+					PositiveAcceleration: positiveAcc,
+					NegativeAcceleration: negativeAcc,
+				}
+			}(keysGroup)
+			keysGroup = [][]SpeedInfo{}
+		}
+	}
+
+	go func() {
+		wg.Wait()
+		close(chunkWiseData)
+	}()
+
+	for result := range chunkWiseData {
+		totalPositiveAccelerationCase += result.PositiveAcceleration
+		totalNegativeAccelerationCase += result.NegativeAcceleration
+	}
+
+	endTime := time.Now()
+	fmt.Println("total time: ", endTime.Sub(startTime).Milliseconds())
+	fmt.Printf("Total Harsh Brakes: %d. Total Harsh Acceleration: %d\n", totalNegativeAccelerationCase, totalPositiveAccelerationCase)
+
+	return nil
+}
+
 func ParseCSV(fileName string) error {
 	startTime := time.Now()
 	file, err := os.Open(fileName)
@@ -54,7 +200,7 @@ func ParseCSV(fileName string) error {
 
 	reader := csv.NewReader(file)
 	data, err := reader.ReadAll()
-	const Layout, Workers, Interval = "2006-01-02 15:04:05", 50, 5
+	const Layout, Workers, Interval = "2006-01-02 15:04:05", 50, 10
 	const AccelerateThresholdInKMPerSecond = 6
 	chunkSize := len(data) / Workers
 	fmt.Printf("chunksize is: %d\n", chunkSize)
@@ -107,6 +253,9 @@ func ParseCSV(fileName string) error {
 		}
 		totalMilliSeconds := data[N-1].TimeStamp.Sub(data[0].TimeStamp).Milliseconds()
 		velocityInKMPerSecond := totalDistanceCoveredInKM / millisecondsToSeconds(totalMilliSeconds)
+		if totalMilliSeconds == 0 || velocityInKMPerSecond == 0 {
+			return false, false
+		}
 		if isAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
 			return true, false
 		} else if isNegativeAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
