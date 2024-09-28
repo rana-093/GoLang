@@ -1,7 +1,6 @@
 package main
 
 import (
-	"GoLang/Backend"
 	"fmt"
 	"sort"
 )
@@ -25,10 +24,4 @@ func twoSum(num []int, target int) []int {
 
 func main() {
 	fmt.Println("==================================================")
-
-	err, _ := Backend.ParseXSLXFromObjectHistoryReport("csvparsing/object_history_report_2024_09_01_00_00_00_2024_10_01_00_00_00_1727255721.xlsx")
-	if err != nil {
-		return
-	}
-	Backend.ParseXSLXFromDailyUsageReport("csvparsing/driver_daily_distance_report_2024_09_01_00_00_00_2024_09_29_00_00_00_1727541640.xlsx")
 }
