@@ -19,6 +19,16 @@ const (
 	bucket = "report-sl"
 )
 
+type VehicleReport struct {
+	TotalAcceleration    int
+	TotalDeceleration    int
+	AccelerationPer100KM float32
+	DecelerationPer100KM float32
+	MaxSpeed             float32
+	TotalDistanceCovered float32
+	DeviceId             string
+}
+
 func downloadAndGetFileName(svc *s3.S3, key string) (string, error) {
 	result, err := svc.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(bucket),
@@ -83,8 +93,31 @@ func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
 
 	svc := s3.New(sess)
 
+	var vechicleReport []VehicleReport
+
 	objectHistoryReport := calculateObjectHistoryForGettingAccAndDcc(svc, objectHistoryUrl)
 	dailyUsageReport := calculateDailyUsageReport(svc, dailyUsageUrl)
+
+	for key, value := range objectHistoryReport {
+		totalDistance := dailyUsageReport[key]
+		totalPositiveAcc := value.PositiveAcceleration
+		totalNegativeAcc := value.NegativeAcceleration
+		positiveAccPer100KM, negativeAccPer100KM := 0.0, 0.0
+		if totalDistance != 0.0 {
+			positiveAccPer100KM = (float64(totalPositiveAcc) / totalDistance) * float64(100)
+			negativeAccPer100KM = (float64(totalNegativeAcc) / totalDistance) * float64(100)
+		}
+		report := VehicleReport{
+			TotalAcceleration:    totalPositiveAcc,
+			TotalDeceleration:    totalNegativeAcc,
+			TotalDistanceCovered: float32(totalDistance),
+			AccelerationPer100KM: float32(positiveAccPer100KM),
+			DecelerationPer100KM: float32(negativeAccPer100KM),
+			MaxSpeed:             value.MaxSpeed,
+			DeviceId:             key,
+		}
+		vechicleReport = append(vechicleReport, report)
+	}
 
 	for key, value := range dailyUsageReport {
 		fmt.Printf("key: %s, value: %f\n", key, value)

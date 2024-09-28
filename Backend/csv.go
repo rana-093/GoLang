@@ -35,6 +35,7 @@ type AccelerationResult struct {
 	NegativeAccelerationPer100KM float32
 	TotalDistanceInKM            float32
 	DeviceId                     string
+	MaxSpeed                     float32
 }
 
 func millisecondsToHours(ms int64) float32 {
@@ -114,8 +115,9 @@ func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]Accele
 		speedMap[val] = make(map[time.Time][]SpeedInfo)
 	}
 
-	processChunk := func(data [][]string, deviceId string) (int, int) {
+	processChunk := func(data [][]string, deviceId string) (int, int, float32) {
 		totalPositiveAccCase, totalNegativeAccCase := 0, 0
+		maxSpeed := 0.0
 		for i := 1; i < len(data); i++ {
 			if len(data[i]) < 18 || strings.EqualFold(data[i][0], "Device") || len(data[i-1]) < 18 {
 				continue
@@ -133,7 +135,8 @@ func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]Accele
 			curSpeed, _ := strconv.ParseFloat(curSpeedParts[0], 32)
 			prevSpeed, _ := strconv.ParseFloat(prevSpeedParts[0], 32)
 
-			//fmt.Printf("curSpeed: %v, prevSpeed: %v, time: %d ms\n", curSpeed, prevSpeed, timeBetween)
+			maxSpeed = math.Max(maxSpeed, curSpeed)
+			maxSpeed = math.Max(maxSpeed, prevSpeed)
 
 			acceleration := ((curSpeed - prevSpeed) / float64(timeBetween)) * 1000.0
 
@@ -145,7 +148,7 @@ func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]Accele
 				}
 			}
 		}
-		return totalPositiveAccCase, totalNegativeAccCase
+		return totalPositiveAccCase, totalNegativeAccCase, float32(maxSpeed)
 	}
 
 	chunkWiseData := make(chan map[string]AccelerationResult, 10)
@@ -162,11 +165,12 @@ func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]Accele
 		wg.Add(1)
 		go func(device string, chunk [][]string) {
 			defer wg.Done()
-			positiveCase, negativeCase := processChunk(chunk, device)
+			positiveCase, negativeCase, maxSpeed := processChunk(chunk, device)
 			chunkWiseData <- map[string]AccelerationResult{
 				device: {
 					PositiveAcceleration: positiveCase,
 					NegativeAcceleration: negativeCase,
+					MaxSpeed:             maxSpeed,
 				},
 			}
 		}(chunkWiseDevices[i], chunk)
@@ -184,17 +188,20 @@ func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]Accele
 
 			totalPositiveAccelerationCase, totalNegativeAccelerationCase, totalDistanceCovered :=
 				value.PositiveAcceleration, value.NegativeAcceleration, float32(0)
+			maxSpeed := value.MaxSpeed
 
 			if existing, exists := result[key]; exists {
 				existing.PositiveAcceleration += totalPositiveAccelerationCase
 				existing.NegativeAcceleration += totalNegativeAccelerationCase
 				existing.TotalDistanceInKM += totalDistanceCovered
+				existing.MaxSpeed = float32(math.Max(float64(existing.MaxSpeed), float64(maxSpeed)))
 				result[key] = existing
 			} else {
 				result[key] = AccelerationResult{
 					PositiveAcceleration: totalPositiveAccelerationCase,
 					NegativeAcceleration: totalNegativeAccelerationCase,
 					TotalDistanceInKM:    totalDistanceCovered,
+					MaxSpeed:             maxSpeed,
 				}
 			}
 		}
