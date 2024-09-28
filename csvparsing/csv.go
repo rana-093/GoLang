@@ -64,9 +64,8 @@ func ParseXSLX(fileName string) error {
 	const Layout, Workers, Interval = "02-01-2006 15:04:05", 50, 20
 	const AccelerateThresholdInKMPerSecond = 3
 	chunkSize := len(rows) / Workers
-	fmt.Printf("chunksize is: %d. Total rows: %d\n", chunkSize, len(rows))
 
-	//fmt.Printf("%v -> %v", rows[1][0], rows[1][1])
+	fmt.Printf("chunksize is: %d. Total rows: %d\n", chunkSize, len(rows))
 
 	speedMap := make(map[time.Time][]SpeedInfo)
 

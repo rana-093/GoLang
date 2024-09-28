@@ -1,9 +1,9 @@
-package Backend
+package main
 
 import (
 	"fmt"
 	"github.com/xuri/excelize/v2"
-	"sort"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +45,33 @@ func millisecondsToSeconds(ms int64) float32 {
 	return float32(ms) / 1_000
 }
 
-func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
+func ParseXSLXFromDailyUsageReport(fileName string) (error, map[string]float64) {
+	f, err := excelize.OpenFile(fileName)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return nil, nil
+	}
+
+	sheetName := f.GetSheetName(0)
+	rows, err := f.GetRows(sheetName)
+	totalDistanceByDevice := make(map[string]float64)
+	for _, row := range rows {
+		if strings.EqualFold(row[0], "Driver") {
+			continue
+		}
+		distanceParts := strings.Split(row[3], " ")
+		deviceName := row[1]
+		distance, _ := strconv.ParseFloat(distanceParts[0], 16)
+		if _, exists := totalDistanceByDevice[deviceName]; exists {
+			totalDistanceByDevice[deviceName] += distance
+		} else {
+			totalDistanceByDevice[deviceName] = distance
+		}
+	}
+	return nil, totalDistanceByDevice
+}
+
+func ParseXSLXFromObjectHistoryReport(fileName string) (error, map[string]AccelerationResult) {
 	startTime := time.Now()
 	f, err := excelize.OpenFile(fileName)
 	if err != nil {
@@ -61,10 +87,10 @@ func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
 	}
 
 	var wg sync.WaitGroup
-	var lock sync.Mutex
+	var _ sync.Mutex
 
-	const Layout, Workers, Interval = "02-01-2006 15:04:05", 50, 20
-	const AccelerateThresholdInKMPerSecond = 3
+	const Layout, Workers = "02-01-2006 15:04:05", 50
+	const AccelerateThresholdInKMPerSecond = 6
 	chunkSize := len(rows) / Workers
 	fmt.Printf("chunksize is: %d. Total rows: %d\n", chunkSize, len(rows))
 
@@ -88,66 +114,41 @@ func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
 		speedMap[val] = make(map[time.Time][]SpeedInfo)
 	}
 
-	processChunk := func(data [][]string, deviceId string) {
-		for _, row := range data {
-			if len(row) < 18 || strings.EqualFold(row[0], "Device") {
+	processChunk := func(data [][]string, deviceId string) (int, int) {
+		totalPositiveAccCase, totalNegativeAccCase := 0, 0
+		for i := 1; i < len(data); i++ {
+			if len(data[i]) < 18 || strings.EqualFold(data[i][0], "Device") || len(data[i-1]) < 18 {
 				continue
 			}
-			timeStamp, err := time.Parse(Layout, row[2])
-			if err != nil {
-				panic(err)
-			}
-			speed, _ := strconv.ParseFloat(row[7], 32)
-			distance, _ := strconv.ParseFloat(row[16], 32)
-			totalDistance, _ := strconv.ParseFloat(row[17], 32)
-			lat, _ := strconv.ParseFloat(row[3], 32)
-			lon, _ := strconv.ParseFloat(row[4], 32)
-			motion, _ := strconv.ParseBool(row[15])
-
-			speedInfo := SpeedInfo{
-				TimeStamp:     timeStamp,
-				Speed:         float32(speed),
-				Distance:      float32(distance),
-				TotalDistance: float32(totalDistance),
-				Lat:           float32(lat),
-				Lon:           float32(lon),
-				Motion:        motion,
+			curTimeStamp, err := time.Parse(Layout, data[i][2])
+			prevTimestamp, err := time.Parse(Layout, data[i-1][2])
+			timeBetween := curTimeStamp.Sub(prevTimestamp).Milliseconds()
+			if timeBetween == 0 || err != nil {
+				continue
 			}
 
-			key := timeStamp.Truncate(time.Duration(Interval) * time.Second)
-			lock.TryLock()
-			speedMap[deviceId][key] = append(speedMap[deviceId][key], speedInfo)
-			lock.Unlock()
+			curSpeedParts := strings.Split(data[i][7], " ")
+			prevSpeedParts := strings.Split(data[i-1][7], " ")
+
+			curSpeed, _ := strconv.ParseFloat(curSpeedParts[0], 32)
+			prevSpeed, _ := strconv.ParseFloat(prevSpeedParts[0], 32)
+
+			//fmt.Printf("curSpeed: %v, prevSpeed: %v, time: %d ms\n", curSpeed, prevSpeed, timeBetween)
+
+			acceleration := ((curSpeed - prevSpeed) / float64(timeBetween)) * 1000.0
+
+			if math.Abs(acceleration) >= AccelerateThresholdInKMPerSecond {
+				if acceleration > 0 {
+					totalPositiveAccCase++
+				} else {
+					totalNegativeAccCase++
+				}
+			}
 		}
+		return totalPositiveAccCase, totalNegativeAccCase
 	}
 
-	handleTimeStampWiseAggregation := func(data []SpeedInfo) (bool, bool, float32) {
-		sort.Slice(data, func(i, j int) bool {
-			return data[i].TimeStamp.Before(data[j].TimeStamp)
-		})
-		N := len(data)
-		isAcceleration, isNegativeAcceleration := true, true
-		totalDistanceCoveredInKM := data[0].Distance
-		for i := 1; i < N; i++ {
-			if data[i].Speed > data[i-1].Speed {
-				isNegativeAcceleration = false
-			} else if data[i].Speed < data[i-1].Speed {
-				isAcceleration = false
-			}
-			totalDistanceCoveredInKM += data[i].Distance
-		}
-		totalMilliSeconds := data[N-1].TimeStamp.Sub(data[0].TimeStamp).Milliseconds()
-		velocityInKMPerSecond := totalDistanceCoveredInKM / millisecondsToSeconds(totalMilliSeconds)
-		if totalMilliSeconds == 0 || velocityInKMPerSecond == 0 {
-			return false, false, totalDistanceCoveredInKM
-		}
-		if isAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
-			return true, false, totalDistanceCoveredInKM
-		} else if isNegativeAcceleration && velocityInKMPerSecond >= AccelerateThresholdInKMPerSecond {
-			return false, true, totalDistanceCoveredInKM
-		}
-		return false, false, totalDistanceCoveredInKM
-	}
+	chunkWiseData := make(chan map[string]AccelerationResult, 10)
 
 	for i := 0; i < len(chunkWiseRows); i++ {
 		start := chunkWiseRows[i]
@@ -161,62 +162,14 @@ func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
 		wg.Add(1)
 		go func(device string, chunk [][]string) {
 			defer wg.Done()
-			processChunk(chunk, device)
-		}(chunkWiseDevices[i], chunk)
-	}
-
-	wg.Wait()
-
-	const NoOfThreads = 15
-	totalLength := 0
-	for _, val := range speedMap {
-		totalLength += len(val)
-	}
-	eachThread := totalLength / NoOfThreads
-
-	chunkWiseData := make(chan map[string][]AccelerationResult, NoOfThreads)
-
-	fmt.Println("eachThread is:", eachThread, "speedMap: ", len(speedMap))
-
-	var keysGroup [][]SpeedInfo
-	idx := 0
-
-	for i, timeMap := range speedMap {
-		for _, val := range timeMap {
-			idx++
-			keysGroup = append(keysGroup, val)
-			if (idx+1)%eachThread == 0 || idx == len(speedMap)-1 {
-				wg.Add(1)
-				go func(group [][]SpeedInfo, deviceId string) {
-					defer wg.Done()
-					positiveAcc, negativeAcc, totalDistance := 0, 0, float32(0)
-					for _, row := range group {
-						if len(row) < 2 {
-							continue
-						}
-						posAcc, negAcc, totalDistanceInKM := handleTimeStampWiseAggregation(row)
-						if posAcc {
-							positiveAcc++
-						} else if negAcc {
-							negativeAcc++
-						}
-						totalDistance += totalDistanceInKM
-					}
-					data := map[string][]AccelerationResult{
-						i: {
-							{
-								PositiveAcceleration: positiveAcc,
-								NegativeAcceleration: negativeAcc,
-								TotalDistanceInKM:    totalDistance,
-							},
-						},
-					}
-
-					chunkWiseData <- data
-				}(keysGroup, i)
-				keysGroup = [][]SpeedInfo{}
+			positiveCase, negativeCase := processChunk(chunk, device)
+			chunkWiseData <- map[string]AccelerationResult{
+				device: {
+					PositiveAcceleration: positiveCase,
+					NegativeAcceleration: negativeCase,
+				},
 			}
-		}
+		}(chunkWiseDevices[i], chunk)
 	}
 
 	go func() {
@@ -227,13 +180,11 @@ func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
 	result := make(map[string]AccelerationResult)
 
 	for data := range chunkWiseData {
-		for key, accResults := range data {
-			totalPositiveAccelerationCase, totalNegativeAccelerationCase, totalDistanceCovered := 0, 0, float32(0)
-			for _, accResult := range accResults {
-				totalPositiveAccelerationCase += accResult.PositiveAcceleration
-				totalNegativeAccelerationCase += accResult.NegativeAcceleration
-				totalDistanceCovered += accResult.TotalDistanceInKM
-			}
+		for key, value := range data {
+
+			totalPositiveAccelerationCase, totalNegativeAccelerationCase, totalDistanceCovered :=
+				value.PositiveAcceleration, value.NegativeAcceleration, float32(0)
+
 			if existing, exists := result[key]; exists {
 				existing.PositiveAcceleration += totalPositiveAccelerationCase
 				existing.NegativeAcceleration += totalNegativeAccelerationCase
@@ -255,5 +206,5 @@ func ParseXSLX(fileName string) (error, *map[string]AccelerationResult) {
 
 	endTime := time.Now()
 	fmt.Println("total time: ", endTime.Sub(startTime).Milliseconds())
-	return nil, &result
+	return nil, result
 }

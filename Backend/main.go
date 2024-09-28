@@ -1,9 +1,9 @@
-package Backend
+package main
 
 import (
-	"GoLang/csvparsing"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,13 +19,58 @@ const (
 	bucket = "report-sl"
 )
 
-func searchFileWithKeyAndDownloadFile(key string) {
+func downloadAndGetFileName(svc *s3.S3, key string) (string, error) {
+	result, err := svc.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", fmt.Errorf("Error: %w\n", err)
+	}
 
+	defer result.Body.Close()
+	newUUID := uuid.New()
+	tempFile, err := os.CreateTemp("", fmt.Sprintf("downloaded-%s-*.xlsx", newUUID.String()))
+
+	if err != nil {
+		return "", fmt.Errorf("Error: %w\n", err)
+	}
+
+	if _, err := io.Copy(tempFile, result.Body); err != nil {
+		return "", fmt.Errorf("Error: %w\n", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		return "", fmt.Errorf("Error: %w\n", err)
+	}
+	return tempFile.Name(), nil
+}
+
+func calculateDailyUsageReport(svc *s3.S3, key string) map[string]float64 {
+	fileName, err := downloadAndGetFileName(svc, key)
+	defer os.Remove(fileName)
+	if err != nil {
+		return nil
+	}
+	_, totalDistanceByDevice := ParseXSLXFromDailyUsageReport(fileName)
+	return totalDistanceByDevice
+}
+
+func calculateObjectHistoryForGettingAccAndDcc(svc *s3.S3, key string) map[string]AccelerationResult {
+	fileName, err := downloadAndGetFileName(svc, key)
+	defer os.Remove(fileName)
+	if err != nil {
+		return nil
+	}
+	_, accAndDccReport := ParseXSLXFromObjectHistoryReport(fileName)
+	return accAndDccReport
 }
 
 func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("objectHistoryUrl")
-	slog.Info("Object History URL is: ", key)
+	objectHistoryUrl := r.URL.Query().Get("objectHistoryUrl")
+	dailyUsageUrl := r.URL.Query().Get("dailyUsageUrl")
+
+	slog.Info("Object History URL is: ", objectHistoryUrl, " and daily usage url is: ", dailyUsageUrl)
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(region),
@@ -38,49 +83,16 @@ func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
 
 	svc := s3.New(sess)
 
-	result, err := svc.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		fmt.Println("Error getting object:", err)
-		return
-	}
-	defer result.Body.Close()
+	objectHistoryReport := calculateObjectHistoryForGettingAccAndDcc(svc, objectHistoryUrl)
+	dailyUsageReport := calculateDailyUsageReport(svc, dailyUsageUrl)
 
-	tempFile, err := os.CreateTemp("", "downloaded-*.xlsx")
-
-	if err != nil {
-		fmt.Println("Error creating temporary file:", err)
-		return
-	}
-
-	defer os.Remove(tempFile.Name())
-
-	if _, err := io.Copy(tempFile, result.Body); err != nil {
-		fmt.Println("Error saving the file:", err)
-		return
-	}
-
-	if err := tempFile.Close(); err != nil {
-		fmt.Println("Error closing temp file:", err)
-		return
-	}
-
-	err = csvparsing.ParseXSLX(tempFile.Name())
-	if err != nil {
-		slog.Error("Error parsing CSV file:", err)
-		return
-	}
-	err, output := ParseXSLX(tempFile.Name())
-	if err != nil {
-		slog.Error("Error parsing CSV file:", err)
-		return
+	for key, value := range dailyUsageReport {
+		fmt.Printf("key: %s, value: %f\n", key, value)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
-	response, err := json.Marshal(output)
+	response, err := json.Marshal(objectHistoryReport)
 
 	if err != nil {
 		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
