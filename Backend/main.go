@@ -43,6 +43,7 @@ type VehicleReport struct {
 	MaxSpeed             float32
 	TotalDistanceCovered float32
 	DeviceId             string
+	OverSpeedingDuration int64
 }
 
 func downloadAndGetFileName(svc *s3.S3, key string) (string, error) {
@@ -117,8 +118,8 @@ func saveReportToDB(vehicleReport []VehicleReport, travelMetaData TravelMetaData
 		query := `INSERT INTO cargo_reports 
     			(harsh_acc_count, harsh_dcc_count, acc_per_100_km, 
     			 dcc_per_100_km, distance, from_date, to_date, 
-    			 device_id, month_of_report) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`
+    			 device_id, month_of_report, overspeeding_duration_in_ms, max_speed) 
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);`
 		_, err := conn.Exec(
 			context.Background(),
 			query,
@@ -131,19 +132,13 @@ func saveReportToDB(vehicleReport []VehicleReport, travelMetaData TravelMetaData
 			travelMetaData.To,
 			travelMetaData.DeviceId,
 			travelMetaData.MonthOfReport,
+			report.OverSpeedingDuration,
+			report.MaxSpeed,
 		)
 		if err != nil {
 			log.Fatalf("Error executing insert query: %v\n", err)
 		}
 	}
-
-	var greeting string
-	err = conn.QueryRow(context.Background(), "SELECT 'Hello, PostgreSQL!'").Scan(&greeting)
-	if err != nil {
-		log.Fatalf("QueryRow failed: %v\n", err)
-	}
-
-	fmt.Println(greeting)
 }
 
 func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +194,7 @@ func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
 			DecelerationPer100KM: float32(negativeAccPer100KM),
 			MaxSpeed:             value.MaxSpeed,
 			DeviceId:             key,
+			OverSpeedingDuration: value.OverSpeedingDuration,
 		}
 		vechicleReport = append(vechicleReport, report)
 	}
@@ -225,6 +221,8 @@ func handleDownLoadFile(w http.ResponseWriter, r *http.Request) {
 		TrackerId:           &trackerId,
 		MonthOfReport:       parsedFromDate.Month().String(),
 	}
+
+	fmt.Println("travelMetaData: ", travelMetaData)
 
 	saveReportToDB(vechicleReport, travelMetaData)
 
